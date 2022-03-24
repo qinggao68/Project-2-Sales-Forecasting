@@ -15,7 +15,6 @@ This project was one of the past competitions I found on Kaggle which the instru
 - in the past three years, the top 10 stores that contributed to the most average weekly sales in Walmart are: stores 4, 20, 13, 2, 14, 10, 27, 39, 1, and 6
   - store #19 dropped in the top ten stores rank in 2011 and 2022 and store #39 climbed up to the top ten stores rank 
 ![top ten stores in avg wkly sales](https://github.com/qinggao68/Project-2-Sales-Forecasting/blob/main/Top_Ten_Stores_with_Highest_avg_Weekly_Sales_2010_2012.PNG)
-
 - in the past three years, the top 10 departments that contributed to the most average weekly sales in Walmart are: depts 92, 95, 38, 65, 90, 40, 72, 2, 91, 94 
 
 ![top ten depts in avg wkly sales](https://github.com/qinggao68/Project-2-Sales-Forecasting/blob/main/Top_Ten_Departs_with_highest_avg_weekly_sales_2010_2012.PNG)
@@ -27,7 +26,8 @@ This project was one of the past competitions I found on Kaggle which the instru
 ![final model - STL ARIMA](https://github.com/qinggao68/Project-2-Sales-Forecasting/blob/main/stl_arima_result.PNG)
 
 # Additional Information 
-Please access the R markdown provided below to view the full analysis.   
+Please access the R markdown provided below to view the full analysis.
+[complete report]file:///C:/Users/chris/OneDrive/Documents/Projects/Project_5_Forecasting/walmart_sales/Walmart_Sales_Forecasting---Final.html
 
 # Project Scope 
 1. Examine the data sets provided and check to see if there are any missing values 
