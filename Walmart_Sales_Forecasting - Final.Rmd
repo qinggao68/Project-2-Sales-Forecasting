@@ -1,0 +1,1347 @@
+---
+title: "Walmart_Sales_Forecasting"
+author: "Christina Gao"
+date: "2/7/2022"
+output: html_document
+---
+
+# Walmart Sales Forecasting
+
+# 1. Data Preparation
+
+## 1.1 Load Packages
+
+```{r setup, include=FALSE}
+# Load packages 
+
+# Data Preparation
+library(dplyr)  #data manipulation
+library(readr)    # read rectangular data like csv, tsv
+library(skimr) # provide broad overview of dataframe
+library(xts)   # handling time-based data
+library(lubridate) # easier to work with dates & time 
+library(tidyr)  # tidy messy data 
+
+
+# Data Visualization 
+library(ggplot2) 
+library(plotly)  # produce interactive plots 
+library(ggcorrplot) # create corrlation matrix using ggplot2
+library(ggpubr)  # easier to use functions working with ggplot2
+library(viridis) # access to viridis palette
+library(gridExtra) # arrange multiple grid-based plots on a page 
+library(ggthemes) # create additional themes
+library(corrplot) # create correlation plot 
+library(naniar) # display #s of missing values visually
+
+
+# Data Wrangling
+library(varhandle)  # to unfactor factor
+library(Amelia)  # visualizing missing values 
+library(VIM) # display missing proportion plot
+
+
+# Time Series 
+library(imputeTS)  # use if for imputating missing values for ts object
+library(tictoc) # timing function
+library(MetricsWeighted) # performance measures used in machine learning
+library(forecast)
+ 
+```
+
+**Summary**
+
+-   loaded necessary packages for data preparation, visualization, features selection, wrangling, and building machine learning models
+
+## 1.2 Clear Global Environment & Set Seed
+
+```{r}
+# Clear the global env variables
+rm(list=ls())
+
+# Set seed so code can be reproduced
+set.seed(2021)
+```
+
+## 1.3 Load Files
+
+```{r}
+# Read the train dataset and create desired data types
+train <- read_csv("C:/Users/chris/OneDrive/Documents/Projects/Project_5_Forecasting/walmart_sales/train_dataset.csv")
+
+# View the first 10 observations
+head(train, n = 10)
+# Take a look at the structure of the train data set
+# skim(train)
+```
+
+**Summary**:
+
+Walmart provided us with 4 data sets. This is the train data set, which has 5 predictors. Within the data set, you will find the data set spans from 2012/02/05 to 2012/11/01. Some information about each predictor:
+
+1.  **store**: goes from 1 to 45
+2.  **dept:** department number, range from 1 to 99
+3.  **date:** every Friday of the week
+4.  **weekly_sales:** the sales for the given dept in the given store
+5.  **IsHoliday:** a boolean value containing T or F to indicate holiday week
+
+```{r}
+# Read the stores data set and create desired data types
+stores <- read_csv("C:/Users/chris/OneDrive/Documents/Projects/Project_5_Forecasting/walmart_sales/stores_dataset.csv")
+
+# View the first 10 observations
+head(stores, n = 10)
+# Take a look at the structure of the stores data set
+# skim(stores)
+```
+
+**Summary:**
+
+In the stores data set, there are 3 predictors. This data set contains information on the Size and Type columns of about 45 stores. Some information about the 3 predictors:
+
+1.  **store**: 45 stores, labeled as 1 to 45
+2.  **size**: the size of a given store that is identified by the numbers of products available in the store ranging from 34k to 210k
+3.  **type:** 3 types( labeled as A, B, C)
+
+```{r}
+# Read the features data set and create desired data types
+features <- read_csv("C:/Users/chris/OneDrive/Documents/Projects/Project_5_Forecasting/walmart_sales/features_dataset.csv")
+
+# View the first 10 observations
+head(features, n = 10)
+# Take a look at the structure of the features data set
+# skim(features)
+```
+
+**Summary:**
+
+In this data set, there are 12 predictors. Some new information on some of the predictors that aren't found in the stores & train data sets:
+
+1.  **temperature**: temperature of a region for a given week
+2.  **fuel_price**: fuel price of a region for a given week
+3.  **markdown1-5:** contains anonymized data related to promotional markdowns that Walmart was running. These 5 columns were only available after Nov 2011 and were not available for all stores, so they contain many missing values represented by "NA". (NOTE: the markdowns are known to affect sales but they are difficult to estimate which dept will be affected)
+4.  **CPI**: consumer price index
+5.  **unemployment**: an unemployment rate of a given week in a region of a given store
+
+
+```{r}
+# Read the test data set and create desired data types
+test <- read_csv("C:/Users/chris/OneDrive/Documents/Projects/Project_5_Forecasting/walmart_sales/test_dataset.csv")
+
+# View the first 10 observations
+head(test, n = 10)
+# Take a look at the structure of the test data set
+# skim(test)
+```
+
+**Summary**:
+
+This is the test data set, which has 4 predictors. Within the data set, you will find the data set spans from 2012-11-02 to 2013-07-26. The test data set is pretty similar to the train data set, except it doesn't has the response variable - the Weekly_Sales. 
+
+
+## 1.4 Merge Data sets
+```{r}
+# Merge train & features data set and saved into newly created df 
+df <- merge(train, features)
+# Merge stores data set with the df variable
+train_df <- merge(df, stores, by = "Store")
+# View the first 10 observations
+head(train_df, n = 10)
+```
+
+**Summary:**
+
+-   merged stores & features data sets with the train data set
+
+## 1.5 Split Date into Year, Month, Week, Day
+```{r}
+# Split into year, month, week, day
+train_df <- train_df %>%
+  dplyr::mutate(Year = lubridate::year(train_df$Date),  # using mutate() function from dplyr package
+                Month = lubridate::month(train_df$Date),
+                Week = lubridate::week(train_df$Date),
+                Day = lubridate::day(train_df$Date)
+                )
+train_df
+```
+
+**Summary:**
+
+-   split the Date column into year, month, week, and day
+
+
+## 1.6 Create Unique Identifier
+```{r}
+# Create a function to combine store & dept and form an ID 
+unique_dept_store <- function(data){
+  mutate(data, Store_Dept = paste0(Store, "_", Dept),
+         .before = 1)
+}
+
+# Apply the function to both data sets - train & test
+train_forecast <- unique_dept_store((train_df))
+test_forecast <- unique_dept_store((test))
+
+head(train_forecast)
+head(test_forecast)
+```
+**Summary:**
+
+- create a unique ID to identify Store&Dept 
+
+
+## 1.8 Re-organize the Data frame
+```{r}
+# re-order the dataset to have the response variable - weekly sales to the last column
+col_df <- c("Date", "Year","Month", "Week", "Day", "Store_Dept", "Dept", "Store", "Type", "Size", "IsHoliday", "Temperature", "Fuel_Price", "CPI", "Unemployment", "MarkDown1", "MarkDown2", "MarkDown3", "MarkDown4", "MarkDown5", "Weekly_Sales")
+
+# Assign the order of the columns into the train_df
+train_forecast <- train_forecast[, col_df]
+head(train_forecast)
+```
+
+## 1.9 Examine Missing Values
+```{r}
+# Display the %s of missing values for each variable in a plot
+gg_miss_var(train_forecast, show_pct = TRUE)
+```
+
+**Summary:**
+
+-   in the train data set, as displayed above, only columns MarkDown1 to 5 have missing values
+-   MarkDown1 to 5 is consists of more than 50% of missing values
+-   as mentioned earlier, they are anonymized columns and they correspond to the promotional activities being carried out at different stores
+
+Let's perform further analysis into the data set to decide whether or not we should utilize data imputation methods to estimate the missing values.
+
+# 2. Explanatory Data Analysis
+
+## 2.1 Numerical Variables Visualization
+
+### 2.1.1 Relationship of Dept vs Weekly Sales
+
+```{r}
+# Create a new df for visualization only 
+forecasting_vis <- train_df
+```
+
+
+```{r}
+# Take the average weekly sales and arrange from largest to smallest
+d1 <- forecasting_vis %>%
+  group_by(Dept, Year) %>%
+  summarise(avg_weeklysales = mean(Weekly_Sales)) %>%
+  arrange(desc(avg_weeklysales))
+d1
+
+# Create a bar plot for Dept vs Weekly Sales  
+b1 <- ggplot(data = d1, aes(x = Dept,y = avg_weeklysales, color = "red")) +
+  geom_col() +
+  facet_wrap(~Year) + 
+  labs(x = "Department", y = "Average Weekly Sales")
+
+# Create a scatter plot for Dept vs Weekly Sales
+s1 <- ggplot(d1, aes(x=Dept, y=avg_weeklysales)) + geom_point() +
+  scale_colour_hue(l=50) + # Use a slightly darker palette than normal
+  geom_smooth(method=lm,   # Add linear regression lines
+              se=TRUE,    # Don't add shaded confidence region
+              fullrange=TRUE) + # Extend regression lines 
+              labs(x = "Department", y = "Average Weekly Sales") 
+
+# Organized the plots in one page 
+grid.arrange(b1, s1, nrow=2)
+
+cor(forecasting_vis$Dept,forecasting_vis$Weekly_Sales)
+```
+
+**Summary:**
+
+-   bar plot:department **#92** has the **highest** average weekly sales for 2010 - 2012 that are around 70k vs department **#47** in 2010 and 2011 with a **lowest(negative)** average sales
+
+-   scatter plot:this plot showcases the linearity of x-variable **Dept** vs y-variable **Avg Weekly Sales**, we can see the linear line is more straight which indicate it has **a bare minimal relationship**
+
+#### 2.1.1.2 Examine Top Ten Departments by Average Weekly Sales
+```{r}
+# Take the average weekly sales by dept and arrange from desc to asce 
+# For 2010 Only
+top_dept_2010 <- forecasting_vis %>%
+  group_by(Dept) %>%
+  filter(Year == "2010") %>%
+  summarise(Top_Avg_Wklysales = mean(Weekly_Sales)) %>%
+  # rename(Top_Avg_Wklysales = Freq) %>%
+  arrange(desc(Top_Avg_Wklysales))
+top_dept_2010
+
+# Create a plot to display top ten highest weekly sales by dept - 2010
+p_2010 <- head(top_dept_2010, n = 10) %>% 
+  ggplot(aes(x = reorder(as.factor(Dept),
+                 Top_Avg_Wklysales), 
+                 y = Top_Avg_Wklysales,
+                 fill=as.factor(Dept))) +
+  geom_bar(stat = 'identity') + 
+  theme(legend.position = "none")+
+  labs(y = "Total Weekly Sales", x = 'Departments', title = "Top Ten Departments with the Highest Average Weekly Sales - 2010") +
+  coord_flip()
+
+
+# For 2011 Only
+top_dept_2011 <- forecasting_vis %>%
+  group_by(Dept) %>%
+  filter(Year == "2011") %>%
+  summarise(Top_Avg_Wklysales = mean(Weekly_Sales)) %>%
+  # rename(Top_Avg_Wklysales = Freq) %>%
+  arrange(desc(Top_Avg_Wklysales))
+top_dept_2011
+
+# Create a plot to display top ten highest weekly sales by dept - 2011
+p_2011 <- head(top_dept_2011, n = 10) %>% 
+  ggplot(aes(x = reorder(as.factor(Dept),
+                 Top_Avg_Wklysales), 
+                 y = Top_Avg_Wklysales,
+                 fill=as.factor(Dept))) +
+  geom_bar(stat = 'identity') + 
+  theme(legend.position = "none")+
+  labs(y = "Total Weekly Sales", x = 'Departments', title = "Top Ten Departments with the Highest Average Weekly Sales - 2011") +
+  coord_flip()
+
+
+# For 2012 Only
+top_dept_2012 <- forecasting_vis %>%
+  group_by(Dept) %>%
+  filter(Year == "2012") %>%
+  summarise(Top_Avg_Wklysales = mean(Weekly_Sales)) %>%
+  # rename(Top_Avg_Wklysales = Freq) %>%
+  arrange(desc(Top_Avg_Wklysales))
+top_dept_2012
+
+# Create a plot to display top ten highest weekly sales by dept - 2011
+p_2012 <- head(top_dept_2012, n = 10) %>% 
+  ggplot(aes(x = reorder(as.factor(Dept),
+                 Top_Avg_Wklysales), 
+                 y = Top_Avg_Wklysales,
+                 fill=as.factor(Dept))) +
+  geom_bar(stat = 'identity') + 
+  theme(legend.position = "none")+
+  labs(y = "Total Weekly Sales", x = 'Departments', title = "Top Ten Departments with the Highest Average Weekly Sales - 2011") +
+  coord_flip()
+
+# Create a subplot
+fig <- subplot(p_2010, p_2011, p_2012)%>% 
+  layout(title = list(text = "Top Ten Departments with the Highest Average Weekly Sales in 2010 - 2012"),
+         plot_bgcolor='#e5ecf6', 
+         xaxis = list( 
+           zerolinecolor = '#ffff', 
+           zerolinewidth = 2, 
+           gridcolor = 'ffff'), 
+         yaxis = list( 
+           zerolinecolor = '#ffff', 
+           zerolinewidth = 2, 
+           gridcolor = 'ffff')) 
+fig
+```
+
+**Summary:**
+
+-   the number one dept in the top ten depts rank for all three years is **#92**, compared to the bottom one in the top ten depts rank is **#91** in 2010-2011, and **#94** in 2012, **#91** moves up one rank in **2012**
+
+-   surprisingly, there are **no depts fall off the top ten depts rank** in these three years, and **no additional depts climbed up in the top ten depts rank**
+
+### 2.1.2 Relationship of Temperature vs Weekly Sales
+
+```{r}
+# Take the average weekly sales and arrange from largest to smallest
+d1 <- forecasting_vis %>%
+  group_by(Temperature, Year) %>%
+  summarise(avg_weeklysales = mean(Weekly_Sales)) %>%
+  arrange(desc(avg_weeklysales))
+View(d1)C
+
+# Create a line plot for Temperature vs Weekly Sales  
+b2 <- ggplot(data = d1, aes(x = Temperature,y = avg_weeklysales, color = "red")) +
+        geom_line(color = "black") +
+        geom_smooth(method = "loess", color = "red", span = 1/5)
+        facet_wrap(~Year)
+
+# Create a scatter plot for Temperature vs Weekly Sales
+s2 <- ggplot(d1, aes(x = Temperature, y = avg_weeklysales)) + geom_point() +
+  scale_colour_hue(l=50) + # Use a slightly darker palette than normal
+  geom_smooth(method = lm,   # Add linear regression lines
+              se = TRUE,    # Don't add shaded confidence region
+              fullrange = TRUE) # Extend regression lines
+
+# Organized the plots in one page 
+grid.arrange(b2, s2, nrow = 2)
+
+cor(forecasting_vis$Temperature,forecasting_vis$Weekly_Sales)
+```
+
+**Summary:**
+
+-   line plot: the **temperature** at**25.17** in 2010 has the highest average weekly sales:**51k** vs the temperature at**37.74** in 2011 has the lowest average weekly sales:**4k**
+
+-   bar plot: shows the relationship of temperature vs average weekly sales, the line is flat which indicates there's barely any relationship which is proved by a correlation of**-0.0023**
+
+### 2.1.3 Relationship of Fuel_Price vs Weekly Sales
+
+```{r}
+# Take the average weekly sales and arrange from largest to smallest
+d1 <- forecasting_vis %>%
+  group_by(Fuel_Price, Year) %>%
+  summarise(avg_weeklysales = mean(Weekly_Sales)) %>%
+  arrange(desc(avg_weeklysales))
+# view(d1)
+
+# Create a line plot for Fuel_Price vs Weekly Sales  
+b3 <- ggplot(data = d1, aes(x = Fuel_Price,y = avg_weeklysales, color = "red")) +
+        geom_line(color = "black") +
+        geom_smooth(method = "loess", color = "red", span = 1/5)
+        facet_wrap(~Year)
+
+# Create a scatter plot for Fuel_Price vs Weekly Sales
+s3 <- ggplot(d1, aes(x=Fuel_Price, y=avg_weeklysales)) + geom_point() +
+  scale_colour_hue(l=50) + # Use a slightly darker palette than normal
+  geom_smooth(method=lm,   # Add linear regression lines
+              se=TRUE,    # Don't add shaded confidence region
+              fullrange=TRUE) # Extend regression lines
+
+# Organized the plots in one page 
+grid.arrange(b3, s3, nrow=2)
+
+cor(forecasting_vis$Fuel_Price,forecasting_vis$Weekly_Sales)
+```
+
+**Summary:**
+
+-   line plot: the fuel price at**$3.10** in**2011** has the highest average weekly sales:**36k** vs the fuel price at**$3.61** in**2012** has the lowest average weekly sales: **5k**
+
+-   bar plot: shows the relationship of fuel price vs average weekly sales, the line is flat which indicates there's barely any relationship which is proved by a correlation of**-0.00012**
+
+### 2.1.4 Relationship of MarkDown1-MarkDown5 vs Weekly Sales
+
+```{r}
+# Create a bar plot for MarkDown1 vs Weekly Sales 
+b4 <- forecasting_vis %>%
+    group_by(MarkDown1, Year) %>%
+    summarise(avg_weeklysales = mean(Weekly_Sales)) %>%
+    arrange(desc(avg_weeklysales)) %>%
+    ggplot(aes(x = MarkDown1,y = avg_weeklysales, color = "red")) +
+      geom_col() +
+      facet_wrap(~Year) + 
+      ggtitle("MarkDown1 vs Weekly Sales")
+
+
+# Create a bar plot for MarkDown2 vs Weekly Sales 
+b5 <- forecasting_vis %>%
+    group_by(MarkDown2, Year) %>%
+    summarise(avg_weeklysales = mean(Weekly_Sales)) %>%
+    arrange(desc(avg_weeklysales)) %>%
+    ggplot(aes(x = MarkDown2,y = avg_weeklysales, color = "red")) +
+      geom_col() +
+      facet_wrap(~Year) + 
+      ggtitle("MarkDown2 vs Weekly Sales")
+
+
+# Create a bar plot for MarkDown3 vs Weekly Sales 
+b6 <- forecasting_vis %>%
+      group_by(MarkDown3, Year) %>%
+      summarise(avg_weeklysales = mean(Weekly_Sales)) %>%
+      arrange(desc(avg_weeklysales)) %>%
+      ggplot(aes(x = MarkDown3,y = avg_weeklysales, color = "red")) +
+        geom_col() +
+        facet_wrap(~Year) + 
+        ggtitle("MarkDown3 vs Weekly Sales")
+
+
+# Create a bar plot for MarkDown4 vs Weekly Sales 
+b7 <- forecasting_vis %>%
+      group_by(MarkDown4, Year) %>%
+      summarise(avg_weeklysales = mean(Weekly_Sales)) %>%
+      arrange(desc(avg_weeklysales)) %>%
+      ggplot(aes(x = MarkDown4,y = avg_weeklysales, color = "red")) +
+        geom_col() +
+        facet_wrap(~Year) + 
+        ggtitle("MarkDown4 vs Weekly Sales")
+
+
+# Create a bar plot for MarkDown5 vs Weekly Sales 
+b8 <- forecasting_vis %>%
+      group_by(MarkDown5, Year) %>%
+      summarise(avg_weeklysales = mean(Weekly_Sales)) %>%
+      arrange(desc(avg_weeklysales)) %>%
+      ggplot(aes(x = MarkDown5,y = avg_weeklysales, color = "red")) +
+        geom_col() +
+        facet_wrap(~Year) + 
+        ggtitle("MarkDown5 vs Weekly Sales")
+
+
+# Organized the plots in one page 
+grid.arrange(b4, b5, b6, nrow=3)
+grid.arrange(b7, b8, nrow=2)
+```
+
+**Summary:**
+
+-   since MarkDown1 to MarkDown5 contain anonymized information, as we can see above there aren't much we can draw from these plots besides knowing the lowest and highest range
+
+    -   All MarkDowns 1 to 5 have missing values in 2010
+
+    -   MarkDown1 ranges from 0.27 to 88k
+
+    -   MarkDown2 ranges from a negative 265.8 to 104k
+
+    -   MarkDown3 ranges from a negative 29.10 to 141k
+
+    -   MarkDown4 ranges from 0.22 to 67k
+
+    -   MarkDown5 ranges from 135.2 to 108k
+
+### 2.1.5 Relationship of CPI vs Weekly Sales
+
+```{r}
+# Take the average weekly sales and arrange from largest to smallest
+d1 <- forecasting_vis %>%
+  group_by(CPI, Year) %>%
+  summarise(avg_weeklysales = mean(Weekly_Sales)) %>%
+  arrange(desc(avg_weeklysales))
+d1
+
+# Create a bar plot for CPI vs Weekly Sales  
+b9 <- ggplot(data = d1, aes(x = CPI,y = avg_weeklysales, color = "red")) +
+      geom_col() +
+      facet_wrap(~Year)
+
+# Create a scatter plot for CPI vs Weekly Sales
+s9 <- ggplot(d1, aes(x=CPI, y=avg_weeklysales)) + geom_point() +
+  scale_colour_hue(l=50) + # Use a slightly darker palette than normal
+  geom_smooth(method=lm,   # Add linear regression lines
+              se=TRUE,    # Don't add shaded confidence region
+              fullrange=TRUE) # Extend regression lines
+
+# Organized the plots in one page 
+grid.arrange(b9, s9, nrow=2)
+
+cor(forecasting_vis$CPI,forecasting_vis$Weekly_Sales)
+```
+
+**Summary:**
+
+-   bar plot: CPI **182.55~** in **2010** has the highest average weekly sales: **39k** compared to CPI **132.11~** in 2010 has the lowest average weekly sales: **15k**
+
+-   scatter plot: this plot showcases the linearity of x-variable **CPI** vs y-variable **Avg Weekly Sales**, we can see the linear line is more straight, which indicate it has **a bare minimal relationship** and it is confirmed through a correlation of **-0.021**
+
+### 2.1.6 Relationship of Unemployment vs Weekly Sales
+
+```{r}
+# Take the average weekly sales and arrange from largest to smallest
+d1 <- forecasting_vis %>%
+  group_by(Unemployment, Year) %>%
+  summarise(avg_weeklysales = mean(Weekly_Sales)) %>%
+  arrange(desc(avg_weeklysales))
+d1
+
+# Create a bar plot for Unemployment vs Weekly Sales  
+b10 <- ggplot(data = d1, aes(x = Unemployment,y = avg_weeklysales, color = "red")) +
+      geom_col() +
+      facet_wrap(~Year)
+
+# Create a scatter plot for Unemployment vs Weekly Sales
+s10 <- ggplot(d1, aes(x=Unemployment, y=avg_weeklysales)) + geom_point() +
+  scale_colour_hue(l=50) + # Use a slightly darker palette than normal
+  geom_smooth(method=lm,   # Add linear regression lines
+              se=TRUE,    # Don't add shaded confidence region
+              fullrange=TRUE) # Extend regression lines
+
+# Organized the plots in one page 
+grid.arrange(b10, s10, nrow=2)
+
+cor(forecasting_vis$Unemployment,forecasting_vis$Weekly_Sales)
+```
+
+**Summary:**
+
+-   bar plot: unemployment at 5.14% in 2011 has the highest average weekly sales: 33k compared to unemployment at 6.57~ in 2010 has the lowest average weekly sales: 4k
+
+- scatter plot: this plot showcases the linearity of x-variable **unemployment** vs y-variable **Avg Weekly Sales**, we can see the linear line is more straight, which indicate it has **a bare minimal relationship** and it is confirmed through a correlation of **-0.025**
+
+### 2.1.7 Relationship of Size vs Weekly Sales
+
+```{r}
+# Take the average weekly sales and arrange from largest to smallest
+d1 <- forecasting_vis %>%
+  group_by(Size, Year) %>%
+  summarise(avg_weeklysales = mean(Weekly_Sales)) %>%
+  arrange(desc(avg_weeklysales))
+d1
+
+# Create a bar plot for Size vs Weekly Sales  
+b11 <- ggplot(data = d1, aes(x = Size,y = avg_weeklysales, color = "red")) +
+      geom_col() +
+      facet_wrap(~Year)
+
+# Create a scatter plot for Size vs Weekly Sales
+s11 <- ggplot(d1, aes(x=Size, y=avg_weeklysales)) + geom_point() +
+  scale_colour_hue(l=50) + # Use a slightly darker palette than normal
+  geom_smooth(method=lm,   # Add linear regression lines
+              se=TRUE,    # Don't add shaded confidence region
+              fullrange=TRUE) # Extend regression lines
+
+# Organized the plots in one page 
+grid.arrange(b11, s11, nrow=2)
+
+cor(forecasting_vis$Size,forecasting_vis$Weekly_Sales)
+```
+
+**Summary:**
+
+-   bar plot: the store size at 200k in 2010 has the highest average weekly sales: 31k compared to store size at 34k in 2010 has the lowest average weekly sales: 4k
+
+- scatter plot: this plot showcases the linearity of x-variable **store size** vs y-variable **Avg Weekly Sales**, we can see the linear line is going upward, which indicate it has **a positive linearity relationship** and it is confirmed through a correlation of **+0.24**
+
+### 2.1.8 Relationship of Store vs Weekly Sales
+
+#### 2.1.8.1 Examine Top 10 Stores by Average Weekly Sales for each Year
+```{r}
+# Calculate the average of weekly sales for each week for 2010
+avg_sales_2010 <- forecasting_vis %>%
+  group_by(Store) %>%
+  filter(Year == "2010") %>%
+  summarise(avg_weeklysales = mean(Weekly_Sales)) %>% 
+  arrange(desc(avg_weeklysales)) %>%
+  mutate(across(where(is.numeric), ~ round(., 2)))  # round to 2 dec. places
+avg_sales_2010
+
+# Create a plot to display top ten highest weekly sales by stores - 2010
+s_2010 <- head(avg_sales_2010, n = 10) %>% 
+  ggplot(aes(x = reorder(as.factor(Store),
+                 avg_weeklysales), 
+                 y = avg_weeklysales,
+                 fill=as.factor(Store))) +
+  geom_bar(stat = 'identity') + 
+  theme(legend.position = "none")+
+  labs(y = "Total Average Sales", x = 'Stores', title = "Top Ten Stores with the Highest Weekly Sales - 2010") +
+  coord_flip()
+
+# Calculate the average of weekly sales for each week for 2011
+avg_sales_2011 <- forecasting_vis %>%
+  group_by(Year, Store) %>%
+  filter(Year == "2011") %>%
+  summarise(avg_weeklysales = mean(Weekly_Sales)) %>%
+  arrange(desc(avg_weeklysales)) %>%
+  mutate(across(where(is.numeric), ~ round(., 2)))  # round to 2 dec. places
+avg_sales_2011
+
+# Create a plot to display top ten highest weekly sales by stores - 2011
+s_2011 <- head(avg_sales_2011, n = 10) %>% 
+  ggplot(aes(x = reorder(as.factor(Store),
+                 avg_weeklysales), 
+                 y = avg_weeklysales,
+                 fill=as.factor(Store))) +
+  geom_bar(stat = 'identity') + 
+  theme(legend.position = "none")+
+  labs(y = "Total Average Sales", x = 'Stores', title = "Top Ten Stores with the Highest Weekly Sales - 2011") +
+  coord_flip()
+
+
+# Calculate the average of weekly sales for each week for 2010
+avg_sales_2012 <- forecasting_vis %>%
+  group_by(Year, Store) %>%
+  filter(Year == "2012") %>%
+  summarise(avg_weeklysales = mean(Weekly_Sales)) %>%
+  arrange(desc(avg_weeklysales)) %>%
+  mutate(across(where(is.numeric), ~ round(., 2)))  # round to 2 dec. places
+avg_sales_2012
+
+# Create a plot to display top ten highest weekly sales by stores - 2011
+s_2012 <- head(avg_sales_2012, n = 10) %>% 
+  ggplot(aes(x = reorder(as.factor(Store),
+                 avg_weeklysales), 
+                 y = avg_weeklysales,
+                 fill=as.factor(Store))) +
+  geom_bar(stat = 'identity') + 
+  theme(legend.position = "none")+
+  labs(y = "Total Average Weekly Sales", x = 'Stores', title = "Top Ten Stores with the Highest Average Weekly Sales - 2012") +
+  coord_flip()
+
+fig <- subplot(s_2010, s_2011, s_2012)%>% 
+  layout(title = list(text = "Top Ten Stores with the Highest Average Weekly Sales in 2010 - 2012"),
+         plot_bgcolor='#e5ecf6', 
+         xaxis = list( 
+           zerolinecolor = '#ffff', 
+           zerolinewidth = 2, 
+           gridcolor = 'ffff'), 
+         yaxis = list( 
+           zerolinecolor = '#ffff', 
+           zerolinewidth = 2, 
+           gridcolor = 'ffff')) 
+fig
+```
+
+**Summary:**
+
+-   the number one store in the top ten stores rank **#14** in 2010 is, **#4** in 20111-2012, as compared to the bottom one in the top ten stores rank is **#19** in 2010, **#39** in 2011, and **#6** in 2012 
+
+-   surprisingly, **#19 store drops in the top ten stores rank** in 2011 to 2012, and **#39 climbed up the top ten stores rank**
+
+
+## 2.2 Categorical Variables Visualization
+
+### 2.2.1 Composition Between Type vs Weekly Sales
+```{r}
+# Group and calc. the percentage of the number of proportion in types A to C
+stores_pct <- stores %>%
+  group_by(Type) %>%
+  summarize(counts = n(),
+            percentage = n()/nrow(stores)) %>%
+  mutate(across(where(is.numeric), ~ round(., 2))) # round to 2 dec. places
+stores_pct
+
+# Create a pie chart with plotly
+store_pie <- plot_ly(data = stores_pct, labels = ~Type, values = ~percentage,
+             type = 'pie', 
+             sort= FALSE,
+             marker= list(colors = colors, line = list(color="black", width = 1))) %>%
+            layout(title = "Types of Stores Proportion ")
+
+store_pie
+```
+
+**Summary:**
+
+- **Type A** store contributes **most** weekly sales, followed by Type B, and Type C being the last 
+
+### 2.2.2 Composition Between IsHoliday vs Weekly Sales
+```{r}
+# Group and calc. the percentage of the number of proportion in types A to C
+isholiday_pct <- train %>%
+  group_by(IsHoliday) %>%
+  summarize(counts = n())
+isholiday_pct
+
+# Create a pie chart with plotly
+isholiday_pie <- plot_ly(data = isholiday_pct, labels = ~IsHoliday, values = ~counts,
+                          type = 'pie',
+                          sort= FALSE,
+                          marker= list(colors = colors, 
+                                       line = list(color="black", width = 1))) %>%
+                          layout(title = "Proportion of Holiday and Non-Holiday")
+
+isholiday_pie
+```
+
+## 2.3 Times Series Visualization
+
+### 2.3.1 Total Monthly Weekly Sales for 2010-2012
+```{r}
+# Create a bar graph of Yearly & Monthly Total Weekly Sales for 2010 to 2012
+df1 <- forecasting_vis %>%
+  mutate(month = factor(Month)) %>%
+  mutate(year = factor(Year)) %>%
+  mutate(wkly_sales = Weekly_Sales)
+
+p1 <- ggplot(df1, aes(x = month, y = wkly_sales, fill = year)) + 
+              geom_col(position = "dodge") + 
+              labs(x = "Month", y = "Total Weekly Sales", title = "Total Weekly Sales in 2010 - 2012") 
+p1
+```
+**Summary:**
+
+-   in **November** for 2010 to 2011, it has the highest weekly sales, followed by December 
+
+## 2.4 Correlation Matrix
+```{r}
+# Drop gender & geography as factors cant be calculated to get its correlation
+corr_matrix <- forecasting_vis %>%
+  dplyr:: select(where(is.numeric)) %>%
+  dplyr::select(-c("MarkDown1", "MarkDown2", "MarkDown3", "MarkDown4", "MarkDown5"))
+
+# Create a correlation matrix
+corr <- round(cor(corr_matrix), 2)
+corrplot(corr, method = "color", cl.pos = 'n', rect.col = "black",  tl.col = "indianred4", addCoef.col = "black", number.digits = 2, number.cex = 0.60, tl.cex = 0.7, cl.cex = 1, col = colorRampPalette(c("green4","white","red"))(100))
+```
+
+**Summary:**
+
+-  **dept, size, month, and week** all have a perfect positive relationship with the response variable - Weekly Sales
+- **unemployment,  store, CPI** all have a perfect negative relationship with the response variable - Weekly Sales
+- Temperature, fuel price has no relationship with the response variable - Weekly Sales 
+
+# 3. Data Wrangling for Model Building
+
+```{r}
+# Create a new train df for modeling 
+# train_forecast <- train_df
+# 
+# # Create a new test df for modeling
+# test_forecast <- test_df
+```
+
+
+## 3.1  Examine Numbers of Unique Observations
+
+```{r}
+# Check to see how many unique observations there are in train data set & test data set
+length(unique(train_forecast$Store_Dept))
+length(unique(test_forecast$Store_Dept))
+
+
+# Filter out the 11 observations that are in the test data set
+# train_df <- filter(train_df, storeDept %in% unique(test_df$storeDept))
+train_obs <- filter(train_forecast, Store_Dept %in% unique(test_forecast$Store_Dept))
+
+# Subtract out the 11 more observations found in the test data set
+# length(unique(test_forecast$Store_Dept)) - length(unique(train_forecast$Store_Dept))
+length(unique(test_forecast$Store_Dept)) - length(unique(train_forecast$Store_Dept))
+
+# Find the 11 numbers of Dept_Store that are not found in the train data set 
+eleven_dept_store_nums <-
+  test_forecast %>%
+  filter(!Store_Dept %in% unique(train_obs$Store_Dept)) %>%
+  .$Store_Dept %>%
+  unique()
+eleven_dept_store_nums
+```
+**Summary:**
+
+- there are 11 more observations per each unique ID in the train data set vs test data set 
+- in other words, these are the unique IDs that are not present in the test data set: 
+    5_99, 9_99, 10_99, 18_43, 24_43, 25_99, 34_39, 36_30, 37_29, 42_30, and 45_39
+
+
+## 3.2 Irregular Time Series 
+```{r}
+# Check if the data has irregular time series (missing gaps between observations)
+# Add 1 because the first week is not accounted for in the difference
+
+# Check to see the beginning & ending of dates in the train data set 
+begin_train <- min(train_forecast$Date)
+end_train <- max(train_forecast$Date)
+
+# Check to see the beginning & ending of dates in the test data set 
+begin_test <- min(test_forecast$Date)
+end_test <- max(test_forecast$Date)
+
+# Calculate the #s of weeks between the ending & beginning dates for train & test data sets
+nums_wks_train <- difftime(end_train, begin_train, units = "weeks") + 1
+nums_wks_train
+
+nums_wks_test <- difftime(end_test, begin_test, units = "weeks") + 1
+nums_wks_test
+
+# Retrieve numbers of observations in each store_dept in the train data set 
+nums_obs_dept_store <-
+  train_forecast %>%
+  count(Store_Dept) %>%
+  arrange(n) %>%
+  rename(Num_Obs = n)
+
+unique(nums_obs_dept_store$Num_Obs)
+
+# Identify the dept_store that has 143 obs 
+numObs_vs_weeklySales <- train_forecast %>%
+  merge(nums_obs_dept_store, by = "Store_Dept") %>%
+  dplyr::select(Date, Store_Dept, Weekly_Sales, Num_Obs)
+```
+
+**Summary:**
+
+- there are any missing gaps among the train & test data sets
+  - the train data set ranges from 2010-02-05 to 2012-10-26; while  in the test data set, it ranges from 2012-11-02 to 2013-07-26
+  - there are 143 weeks and only 39 weeks in the test data set 
+- there are 143 observations for each unique ID
+
+
+## 3.3 Convert Irregular Time Series to Regular Time Series
+```{r}
+# Filter only holiday weeks 
+holiday_wks <-
+  train_forecast %>%
+  filter(IsHoliday == TRUE) %>%
+  .$Date %>%
+  unique()
+holiday_wks
+
+# Calculate the weeks before the identified holiday weeks
+before_holiday_wks <- holiday_wks - 7
+before_holiday_wks
+
+# Convert irregular ts to regular ts 
+# Create a tibble and then add in the missing gaps of the ts through outer joining with the dates of the 143 wks 
+train_dates <- tibble("Date" = seq(begin_train, end_train, by = 7))
+
+convert_regular_ts <- function(data){
+  Store_Dept <- unique(data$Store_Dept)
+  Store <- unique(data$Store)
+  Dept <- unique(data$Dept)
+  merge(data, train_dates, by = "Date", all = T) %>%
+  replace_na(list(Store_Dept = Store_Dept, 
+                  Store = Store, 
+                  Dept = Dept #, 
+                 ))
+}
+
+store_dept_df <-
+  train_forecast %>%
+  dplyr::select(Store_Dept, Store, Dept, Date, Weekly_Sales) %>%
+  group_by(Store_Dept) %>%
+  do(convert_regular_ts(.)) %>%
+  ungroup() %>%
+  arrange(Store, Dept)
+
+store_dept_df
+```
+**Summary:**
+
+- these are the dates of holidays: 
+  "2010-02-12", "2010-09-10", "2010-11-26" , "2010-12-31",  "2011-02-11" , "2011-09-09" , "2011-11-25"
+
+I also calculated the weeks before each holiday date
+then, I created a tibble to add in the missing gaps of the time series by joining the dates of the 143 weeks 
+
+
+## 3.4 Convert into Multiple Time Series Object
+
+```{r}
+# Convert into multiple time series object and use pivot_wider to spread the mts into separate columns 
+store_dept_mts<- 
+  store_dept_df %>%
+  dplyr::select(-Store, -Dept) %>%
+  pivot_wider(names_from = Store_Dept, values_from = Weekly_Sales) %>%
+  dplyr::select(-Date) %>%
+  ts(start = decimal_date(begin_train), frequency = 52)
+
+store_dept_mts[, 1]
+```
+**Summary:**
+
+- since the train data set is multivariate, we need to convert them into multivariate time series objects before we perform various time series forecasting methods 
+
+## 3.5 Interpolation 
+```{r setup, warning=FALSE}
+# Perform interpolation to fill in missing values
+impute <- function(current_ts){
+ if(sum(!is.na(ts)) >= 3){
+    na_seadec(current_ts)
+ } else if(sum(!is.na(ts)) == 2){
+   na_interpolation(current_ts)
+ } else{
+   na_locf(current_ts)
+ }
+}
+for(i in 1:ncol(store_dept_mts)){
+  store_dept_mts[, i] <- impute(store_dept_mts[, i])
+}
+
+sum(is.na(store_dept_mts))
+```
+
+**Summary:**
+
+- according to investopedia.com, "Interpolation is achieved by using other established values that are located in sequence with the unknown value," so I created a interpolation function that which will be used later to generate forecasts for each forecasting method that I will be using 
+
+
+## 3.6 Split Data into Train and Validate
+```{r}
+# Determine which are holiday vs non-holiday
+holiday_non_holiday <- train_forecast %>%
+  dplyr::select(Date, IsHoliday) %>%
+  unique() %>%
+  .$IsHoliday
+
+# Count the #s of rows in the mts train
+total_data <- nrow(store_dept_mts)
+
+# Split the data into 80% to train & 20% to validate 
+train_set <- round(0.80 * total_data)
+validate_set <- total_data - train_set
+
+
+validate_weights <- holiday_non_holiday[(total_data - validate_set + 1):total_data]
+train_data <- store_dept_mts %>% subset(end = train_set)
+validate_data <- store_dept_mts %>% subset(start = train_set + 1)
+```
+
+**Summary:**
+
+- split the train data set into 80% into train and 20% into validate data set
+- the validate data set will be used to calculate the WMAE 
+
+NOTE: the test data set will be untouched until I arrive at a final model based on the lowest WMAE score 
+
+
+## 3.7 WMAE Function
+```{r}
+# Define a function to calculate the WMAE 
+WMAE <- function(fc){
+  # rep() to replicate weights for each storeDept
+  weights <- as.vector(rep(validate_weights, ncol(fc)))
+  
+  # as.vector() collapse all columns into one
+  MetricsWeighted::mae(as.vector(validate_data), as.vector(fc), weights)
+}
+```
+
+**Summary:**
+
+- WMAE stands for weighted mean absolute error 
+- the lower the WMAE is, the better the model is at lowering the average of absolute errors for the prediction of observation vs true value of observation as "a measurement of the magnitude of errors for the entire group" (clarity.io)
+
+NOTE: This is also the metric that Walmart specifically points out in the guideline to use. 
+
+## 3.8 Forecast Function
+```{r}
+# Define a function to generates forecast for each time series forecasting method
+model_forecasts <- function(train_data, h, model, ...){
+
+  tic()
+
+  # Initialize forecasts with zeroes
+  full_forecast <- matrix(0, h, ncol(train_data))
+
+  # Iterate through all storeDept to perform forecasting
+  for(i in 1:ncol(train_data)){
+    current_ts <- train_data[, i]
+    fc <- model(current_ts, h, ...)
+    full_forecast[, i] <- fc
+  }
+
+  toc()
+
+  # Return forecasts
+  full_forecast
+}
+```
+
+**Summary:**
+
+- created a forecast function to generates forecasts that will be use later for each time series forecast method
+
+# 4. Time Series Forecasting 
+
+## 4.1 Plot Function 
+```{r}
+# change index for different storeDept
+basic_ts <- store_dept_mts[, 111] 
+basic_train_mod <- basic_ts %>% subset(end = 107)
+
+
+# Create a plot function to autoplot each time series forecasting method
+forecast_plots <- function(ref, fc_list, model_names){
+  plt <- autoplot(ref)
+  for(i in 1:length(fc_list)){
+    plt <- plt + autolayer(fc_list[[i]], series = model_names[i], PI = F)
+  }
+  plt <- plt +
+    ylab("Weekly_Sales") +
+    guides(color = guide_legend(title = "Time Series Forecasting Method:"))
+  plt
+}
+```
+
+**Summary:**
+
+- created a plot function to perform "autoplot" for each ts forecast method 
+
+
+## 4.2 Simple Exponential Smoothing Forecast
+```{r}
+# Using the forecast function to generate weekly sales projection
+simple_es <- function(current_ts, h){
+  ses(current_ts, h = h)$mean
+}
+# Produce the summary of the simple ES 
+simple_es_mod <- ses(basic_train_mod, h = 36)
+summary(simple_es_mod)
+
+# Make prediction on the validate data for simple ES
+simple_es_pred <- model_forecasts(train_data, validate_set, simple_es)
+
+# Calculate the WMAE on the simple ES validate data
+WMAE(simple_es_pred)
+
+# Create a plot to display simple ES
+
+forecast_plots(basic_ts, 
+               list(
+                    simple_es_mod
+                    ),
+               c(
+                 "Simple ES"
+                )
+)
+```
+
+**Summary:**
+
+- simple exponential smoothing is a method used for an univariate data without a trend or seasonality
+- since our data is multivariate, without a surprise, the WMAE is: 3470.621 which is quite high 
+simple ES also predicted in the next 36 months, the weekly sales will be constant which doesn't look right 
+
+
+## 4.3 Holt's Trend Forecast
+```{r}
+# Using the forecast function to generate weekly sales projection
+holt_trend <- function(current_ts, h){
+  holt(current_ts, h = h)$mean
+}
+
+# Produce the summary of the Holt's Trend
+holt_trend_mod <- holt(basic_train_mod, h = 36, seasonal = "multiplicative")
+summary(holt_trend_mod)
+
+
+# Make prediction on the validate data for Holt's Trend
+holt_trend_pred <- model_forecasts(train_data, validate_set, holt_trend)
+
+# Calculate the WMAE on the Holt's Trend validate data
+WMAE(holt_trend_pred)
+
+# Create a plot to display Holt's Trend
+forecast_plots(basic_ts, 
+               list(
+                    holt_trend_mod
+                    ),
+               c(
+                 "Holt's Trend"
+                )
+)
+```
+
+**Summary:**
+
+- holt's trend is also known as the linear exponential smoothing, which is used to forecast data with trend 
+- the WAME is 4914.25, which is the highest among all the other time series forecasting methods that I had used in this project
+- compared to simple ES, holt's trend predicted the weekly sales will drop 
+
+## 4.4  Seasonal Naive Forecast
+```{r}
+# Using the forecast function to generate weekly sales projection
+seasonal_snaive <- function(current_ts, h){
+  snaive(current_ts, h = h)$mean
+}
+# Produce the summary of the seasonal naive  
+snaive_mod <- snaive(basic_train_mod, 36)
+summary(snaive_mod)
+
+# Make prediction on the validate data for SNAIVE
+snaive_pred <- model_forecasts(train_data, validate_set, seasonal_snaive)
+
+# Calculate the WMAE on the SNAIVE validate data
+WMAE(snaive_pred)
+
+# Create a plot to display snaive
+forecast_plots(basic_ts, 
+               list(
+                    snaive_mod
+                    ),
+               c(
+                 "Seasonal Naive"
+                )
+)
+
+```
+
+**Summary:**
+
+- the seasonal naive forecast is similar to the naive forecast method, except it is mainly used to forecast highly seasonal data 
+- in this forecast model, we set each forecast to equal to the last observed value from the same season(e.g. same month of the previous year) 
+- WMAE is 1686.329, which is significantly low as compared to the other two methods 
+- the predicted weekly sales also makes more sense as compared to simple ES and holt's trend 
+
+
+## 4.5  Linear Model with Time Series Components(trend and seasonality)
+```{r}
+# Using the forecast function to generate weekly sales projection
+tslm_forecast <- function(current_ts, h){
+  tslm(current_ts ~ trend + season) %>%
+    forecast( h = h) %>%
+    .$mean
+}
+
+# Produce the summary of the tslm 
+tslm_mod <- tslm(basic_train_mod ~ trend + season) %>% forecast(h = 36)
+summary(tslm_mod)
+
+# Make prediction on the validate data for tslm
+tslm_pred <- model_forecasts(train_data, validate_set, tslm_forecast)
+
+# Calculate the WMAE on the tslm validate data
+WMAE(tslm_pred)
+
+# Create a plot to display linear model with ts components
+forecast_plots(basic_ts, 
+               list(
+                    tslm_mod
+                    ),
+               c(
+                 "TSLM Forecast"
+                )
+)
+```
+
+**Summary:**
+
+- TSLM model is a linear model that we can use to fit with time series that has both trend and seasonality components 
+- the WMAE is 1674.749, which is slightly lower than the seasonal naive forecast 
+- as shown in the summary table, TSLM predicted that the 3rd month has the highest weekly sales while the rest of the months' weekly sales are relatively similar to what seasonal naive forecast predicted 
+
+## 4.6  TBATS Forecast
+```{r}
+# Using the forecast function to generate weekly sales projection
+tbats_fc <- function(current_ts, h){
+  forecast::forecast(current_ts, h = h)$mean
+}
+
+# Produce the summary of the TBATS
+tbats_mod <- forecast::forecast(basic_train_mod, h = 36)
+summary(tbats_mod)
+
+# Make prediction on the validate data for TBATS
+tbats_pred <- model_forecasts(train_data, validate_set, tbats_fc)
+
+# Calculate the WMAE on the TBATS validate data
+WMAE(tbats_pred)
+
+# Create a plot to display ES state space model with Box-Cox transformation, ARMA errors, Trend and Seasonal components
+forecast_plots(basic_ts, 
+               list(
+                    tbats_mod
+                    ),
+               c(
+                 "TBATS"
+                )
+)
+```
+
+**Summary:**
+
+- TBATS model is a forecasting method used to forecast complex seasonal time series data using exponential smoothing
+- the WMAE is 1515.041, which is a lot smaller than the other four forecast methods that we have seen so far 
+- as shown in the summary table, TSLM also predicted that the 3rd month has the highest weekly sales while the rest of the months' weekly sales are relatively similar to what the seasonal naive forecast predicted 
+
+
+## 4.7  Seasonal and Trend decomposition using Loess Forecasting Model - ETS
+```{r}
+# Using the forecast function to generate weekly sales projection
+stl_ets <- function(current_ts, h){
+  stlf(current_ts, method = "ets", opt.crit = 'mae', h = h)$mean
+}
+
+# Produce the summary of the TBATS
+stl_ets_mod <- stlf(basic_train_mod, method = "ets", 36) 
+summary(stl_ets_mod)
+
+# Make prediction on the validate data for TBATS
+stl_ets_pred <- model_forecasts(train_data, validate_set, stl_ets)
+
+# Calculate the WMAE on the TBATS validate data
+WMAE(stl_ets_pred)
+
+# Create a plot to display ES state space model with Box-Cox transformation, ARMA errors, Trend and Seasonal components
+forecast_plots(basic_ts, 
+               list(
+                    stl_ets_mod
+                    ),
+               c(
+                 "STL_ETS"
+                )
+)
+```
+
+**Summary:**
+
+- STL-ETS model is a method to decompose time series, it stands for "Seasonal and Trend decomposition using Loess”
+  - it can be used to estimate nonlinear relationships 
+- the WMAE is 1477.846, which is a lot smaller than the other five forecast methods that we have seen so far 
+- as shown in the summary table, STL-ETS, it also predicted that the 3rd month has the highest weekly sales while the rest of the months' weekly sales are relatively similar to what the seasonal naive forecast predicted 
+
+
+## 4.8  Seasonal and Trend decomposition using Loess Forecasting Model - ARIMA
+```{r}
+# Using the forecast function to generate weekly sales projection
+stl_arima <- function(current_ts, h){
+  stlf(current_ts, method = "arima", h = h)$mean
+}
+
+# Produce the summary of the TBATS
+stl_arima_mod <- stlf(basic_train_mod, method = "ets", 36) 
+summary(stl_arima_mod)
+
+# Make prediction on the validate data for TBATS
+stl_arima_pred <- model_forecasts(train_data, validate_set, stl_arima)
+
+# Calculate the WMAE on the TBATS validate data
+WMAE(stl_arima_pred)
+
+# Create a plot to display ES state space model with Box-Cox transformation, ARMA errors, Trend and Seasonal components
+forecast_plots(basic_ts, 
+               list(
+                    stl_arima_mod
+                    ),
+               c(
+                 "STL_ARIMA"
+                )
+)
+```
+
+**Summary:**
+
+- STL-ARIMA is similar to STL-ETS, except it used ARIMA components to decompose the time series 
+- the WMAE is 1454.388, which is a lot smaller than the other six forecast methods that we have seen so far 
+- as shown in the summary table, STL-ARIMA, it also predicted that the 3rd month has the highest weekly sales while the rest of the months' weekly sales are relatively similar to what the seasonal naive forecast predicted 
+
+
+## 4.9 Final Model 
+```{r}
+# Define a variable to save the final forecast model based on the lowest WMAE
+final_stl_arima_mod <- model_forecasts(store_dept_mts, nums_wks_test, stl_arima)
+
+```
+
+## 4.10 Holidays Adjustments
+```{r}
+# The condition for shifting is when Weekly_Sales for week 51 is ‘k’ times greater than in week 52, where we can tune ‘k’ against the leaderboard to find that the optimal value is at roughly k = 2. We need a condition for shifting because not all storeDept experience the same seasonality patterns for Christmas.
+
+adjust_holidays <- function(full_forecast){
+  adjustment <- function(fc){
+  if(2 * fc[9] < fc[8]){
+    adj <- fc[8] * (2.5 / 7)
+    fc[9] <- fc[9] + adj
+    fc[8] <- fc[8] - adj
+    }
+  fc
+  }
+  apply(full_forecast, 2, adjustment)
+}
+
+final_forecast <- adjust_holidays(final_stl_arima_mod)
+
+# A thing to note is that for those Store_Dept without any historical observations, we let the forecasts take value 0.
+
+store_dept_names <- colnames(store_dept_mts)
+colnames(final_forecast) <- store_dept_names
+
+test_dates <- tibble("Date" = seq(begin_test, end_test, by = 7))
+final <- 
+  cbind(test_dates, final_forecast) %>% 
+  pivot_longer(!Date, names_to = "Store_Dept", values_to = "Weekly_Sales")
+```
+
+**Summary:**
+
+- created a post-forecast adjustment to account for any given department whose average sales for example in weeks 49, 50,51 are at least 10% higher than for weeks 48 and 52, then the code will shift a fraction of the sales from weeks 48 and 52 into the next week 
+- this function will apply to the final model - STL_ARIMA
+
+
+## 4.11 Final Weekly Sales Projection 
+```{r}
+# Write the projected weekly sales to csv 
+final_wkly_sales <-
+  test_forecast %>%
+  left_join(final, by = c("Store_Dept", "Date")) %>% 
+  replace_na(list(Weekly_Sales = 0)) %>%
+  mutate(Id = paste0(Store_Dept, "_", Date)) %>%
+  dplyr::select(Id, Weekly_Sales)
+final_wkly_sales
+
+write_csv(final_wkly_sales, "D:\\Projects\\walmart_weekly_sales_projection.csv")
+```
