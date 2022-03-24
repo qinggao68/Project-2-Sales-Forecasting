@@ -26,8 +26,8 @@ This project was one of the past competitions I found on Kaggle which the instru
 ![final model - STL ARIMA](https://github.com/qinggao68/Project-2-Sales-Forecasting/blob/main/stl_arima_result.PNG)
 
 # Additional Information 
-Please access the R markdown provided below to view the full analysis.
-[complete report]file:///C:/Users/chris/OneDrive/Documents/Projects/Project_5_Forecasting/walmart_sales/Walmart_Sales_Forecasting---Final.html
+Please download the R markdown report to view the full analysis.
+https://github.com/qinggao68/Project-2-Sales-Forecasting/blob/main/Walmart_Sales_Forecasting---Final.html
 
 # Project Scope 
 1. Examine the data sets provided and check to see if there are any missing values 
