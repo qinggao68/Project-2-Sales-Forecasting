@@ -25,6 +25,11 @@ This project was one of the past competitions I found on Kaggle which the instru
 - final model - STL-ARIMA has the lowest WMAE with a score of 1454.388  
 ![final model - STL ARIMA](https://github.com/qinggao68/Project-2-Sales-Forecasting/blob/main/stl_arima_result.PNG)
 
+# Additional Information 
+Please access the full report at this link: 
+
+https://github.com/qinggao68/Project-2-Sales-Forecasting/blob/main/Walmart_Sales_Forecasting.pdf
+
 # Project Scope 
 1. Examine the data sets provided and check to see if there are any missing values 
 2. Create data visualization for each predictor and compare it to the response variable - weekly sales 
