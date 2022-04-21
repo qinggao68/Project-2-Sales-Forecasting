@@ -2,7 +2,7 @@
 
 The purpose of this project is to project the next 36 months of weekly sales using historical weekly sales.
 
-I hope these time series models I built will be handy during the valuation stage as the models can quickly provide an overview on whether the sales will be trendy upward or downward in the next few years. The models can also be used during the post-integration stage, to monitor each acquired company's sales. 
+I hope these time series models I built will be handy during the valuation stage as the models can quickly provide an overview on whether the sales will be trendy upward or downward in the next few years. The models can also be used during the post-integration stage, to predict each acquired company's sales. 
 
 # Key Findings
 
